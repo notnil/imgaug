@@ -105,14 +105,18 @@ func (mr MultiplyResizer) Size(cfg *Config, bnds image.Point) image.Point {
 }
 
 type Resize struct {
-	Width int
-	Heigh int
-	Alg   imaging.ResampleFilter
+	Sizer Sizer
+	Algs  []ResizeAlg
 }
 
 func (r Resize) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
 	ogBnds := img.Bounds()
-	img = imaging.Resize(img, r.Width, r.Heigh, r.Alg)
+	pt := r.Sizer.Size(cfg, img.Bounds().Max)
+	alg := NearestNeighbor
+	if len(r.Algs) > 0 {
+		alg = r.Algs[cfg.r.Intn(len(r.Algs))]
+	}
+	img = imaging.Resize(img, pt.X, pt.Y, alg.resampleFilter())
 	xRatio := float64(img.Bounds().Dx()) / float64(ogBnds.Dx())
 	yRatio := float64(img.Bounds().Dy()) / float64(ogBnds.Dy())
 	out := []interface{}{}
@@ -135,5 +139,58 @@ func resizePoint(pt image.Point, xRatio, yRatio float64) image.Point {
 	return image.Pt(x, y)
 }
 
-type RandResize struct {
+type ResizeAlg int
+
+const (
+	NearestNeighbor ResizeAlg = iota
+	Box
+	Linear
+	Hermite
+	MitchellNetravali
+	CatmullRom
+	BSpline
+	Gaussian
+	Bartlett
+	Lanczos
+	Hann
+	Hamming
+	Blackman
+	Welch
+	Cosine
+)
+
+func (ra ResizeAlg) resampleFilter() imaging.ResampleFilter {
+	switch ra {
+	case NearestNeighbor:
+		return imaging.NearestNeighbor
+	case Box:
+		return imaging.Box
+	case Linear:
+		return imaging.Linear
+	case Hermite:
+		return imaging.Hermite
+	case MitchellNetravali:
+		return imaging.MitchellNetravali
+	case CatmullRom:
+		return imaging.CatmullRom
+	case BSpline:
+		return imaging.BSpline
+	case Gaussian:
+		return imaging.Gaussian
+	case Bartlett:
+		return imaging.Bartlett
+	case Lanczos:
+		return imaging.Lanczos
+	case Hann:
+		return imaging.Hann
+	case Hamming:
+		return imaging.Hamming
+	case Blackman:
+		return imaging.Blackman
+	case Welch:
+		return imaging.Welch
+	case Cosine:
+		return imaging.Cosine
+	}
+	return imaging.NearestNeighbor
 }

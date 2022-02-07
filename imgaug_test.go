@@ -8,7 +8,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/disintegration/imaging"
 	"github.com/notnil/imgaug"
 	"github.com/sebdah/goldie/v2"
 	"gopkg.in/fogleman/gg.v1"
@@ -60,9 +59,8 @@ var (
 		{
 			Name: "resize_001",
 			Tm: imgaug.Resize{
-				Width: 50,
-				Heigh: 50,
-				Alg:   imaging.NearestNeighbor,
+				Sizer: imgaug.FixedResizer{Width: 50, Height: 50},
+				Algs:  []imgaug.ResizeAlg{imgaug.NearestNeighbor},
 			},
 			LabelsIn: []interface{}{},
 		},
