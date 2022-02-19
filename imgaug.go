@@ -5,8 +5,15 @@ import (
 	"math/rand"
 )
 
+type Labels struct {
+	BBoxes    []image.Rectangle
+	Polygons  [][]image.Point
+	Keypoints [][]image.Point
+	Masks     []image.Image
+}
+
 type Transformer interface {
-	Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{})
+	Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels)
 }
 
 type Config struct {

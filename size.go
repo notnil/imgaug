@@ -10,23 +10,20 @@ import (
 
 type Crop image.Rectangle
 
-func (c Crop) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
+func (c Crop) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
 	img = imaging.Crop(img, image.Rectangle(c))
-	out := []interface{}{}
-	for _, l := range labels {
-		switch v := l.(type) {
-		case image.Rectangle:
-			r := v.Intersect(image.Rectangle(c))
-			r = image.Rectangle{
-				Min: r.Min.Sub(c.Min),
-				Max: r.Max.Sub(c.Min),
-			}
-			if cfg.keepBbox(image.Rectangle(c), r) {
-				out = append(out, r)
-			}
+	newLabels := Labels{}
+	for _, v := range labels.BBoxes {
+		r := v.Intersect(image.Rectangle(c))
+		r = image.Rectangle{
+			Min: r.Min.Sub(c.Min),
+			Max: r.Max.Sub(c.Min),
+		}
+		if cfg.keepBbox(image.Rectangle(c), r) {
+			newLabels.BBoxes = append(newLabels.BBoxes, r)
 		}
 	}
-	return img, out
+	return img, newLabels
 }
 
 type Side int8
@@ -43,7 +40,7 @@ type Pad struct {
 	Pixels int
 }
 
-func (p Pad) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
+func (p Pad) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
 	bnds := img.Bounds()
 	r := image.Rectangle{}
 	switch p.Side {
@@ -66,18 +63,15 @@ func (p Pad) Transform(cfg *Config, img image.Image, labels []interface{}) (imag
 	}
 	dImg := image.NewRGBA(bnds)
 	draw.Draw(dImg, r, img, image.ZP, draw.Over)
-	out := []interface{}{}
-	for _, l := range labels {
-		switch v := l.(type) {
-		case image.Rectangle:
-			r := image.Rectangle{
-				Min: v.Min.Add(r.Min),
-				Max: v.Max.Add(r.Min),
-			}
-			out = append(out, r)
+	newLabels := Labels{}
+	for _, v := range labels.BBoxes {
+		r := image.Rectangle{
+			Min: v.Min.Add(r.Min),
+			Max: v.Max.Add(r.Min),
 		}
+		newLabels.BBoxes = append(newLabels.BBoxes, r)
 	}
-	return dImg, out
+	return dImg, newLabels
 }
 
 type Sizer interface {
@@ -109,7 +103,7 @@ type Resize struct {
 	Algs  []ResizeAlg
 }
 
-func (r Resize) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
+func (r Resize) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
 	ogBnds := img.Bounds()
 	pt := r.Sizer.Size(cfg, img.Bounds().Max)
 	alg := NearestNeighbor
@@ -119,18 +113,15 @@ func (r Resize) Transform(cfg *Config, img image.Image, labels []interface{}) (i
 	img = imaging.Resize(img, pt.X, pt.Y, alg.resampleFilter())
 	xRatio := float64(img.Bounds().Dx()) / float64(ogBnds.Dx())
 	yRatio := float64(img.Bounds().Dy()) / float64(ogBnds.Dy())
-	out := []interface{}{}
-	for _, l := range labels {
-		switch v := l.(type) {
-		case image.Rectangle:
-			r := image.Rectangle{
-				Min: resizePoint(v.Min, xRatio, yRatio),
-				Max: resizePoint(v.Max, xRatio, yRatio),
-			}
-			out = append(out, r)
+	newLabels := Labels{}
+	for _, v := range labels.BBoxes {
+		r := image.Rectangle{
+			Min: resizePoint(v.Min, xRatio, yRatio),
+			Max: resizePoint(v.Max, xRatio, yRatio),
 		}
+		newLabels.BBoxes = append(newLabels.BBoxes, r)
 	}
-	return img, out
+	return img, newLabels
 }
 
 func resizePoint(pt image.Point, xRatio, yRatio float64) image.Point {

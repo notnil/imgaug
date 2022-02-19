@@ -4,7 +4,7 @@ import "image"
 
 type Sequential []Transformer
 
-func (s Sequential) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
+func (s Sequential) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
 	for _, t := range s {
 		img, labels = t.Transform(cfg, img, labels)
 	}
@@ -16,7 +16,7 @@ type Sometimes struct {
 	Transformer Transformer
 }
 
-func (s Sometimes) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
+func (s Sometimes) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
 	if s.P > cfg.r.Float64() {
 		return s.Transformer.Transform(cfg, img, labels)
 	}
@@ -28,7 +28,7 @@ type SomeOf struct {
 	T []Transformer
 }
 
-func (s SomeOf) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
+func (s SomeOf) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
 	cp := append([]Transformer{}, s.T...)
 	cfg.r.Shuffle(len(s.T), func(i, j int) {
 		cp[i], cp[j] = cp[j], cp[i]
@@ -41,12 +41,12 @@ type OneOf struct {
 	T []Transformer
 }
 
-func (o OneOf) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
+func (o OneOf) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
 	return SomeOf{N: IntRange{Min: 1, Max: 1}, T: o.T}.Transform(cfg, img, labels)
 }
 
 type Noop struct{}
 
-func (n Noop) Transform(cfg *Config, img image.Image, labels []interface{}) (image.Image, []interface{}) {
+func (n Noop) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
 	return img, labels
 }
