@@ -16,6 +16,12 @@ type Transformer interface {
 	Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels)
 }
 
+type TransformerFunc func(cfg *Config, img image.Image, labels Labels) (image.Image, Labels)
+
+func (fn TransformerFunc) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
+	return fn(cfg, img, labels)
+}
+
 type Config struct {
 	r                 *rand.Rand
 	bboxMinArea       int

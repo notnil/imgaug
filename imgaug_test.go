@@ -29,58 +29,59 @@ var (
 	testCases = []testCase{
 		{
 			Name:   "noop_001",
-			Tm:     imgaug.Noop{},
+			Tm:     imgaug.Noop(),
 			Labels: StandardLabels,
 		},
 		{
 			Name:   "crop_001",
-			Tm:     imgaug.Crop(image.Rect(25, 25, 100, 100)),
+			Tm:     imgaug.Crop(imgaug.FixedCrop(image.Rect(25, 25, 100, 100))),
 			Labels: StandardLabels,
 		},
 		{
-			Name:   "pad_001",
-			Tm:     imgaug.Pad{Side: imgaug.Left, Pixels: 20},
+			Name: "pad_001",
+			Tm: imgaug.Pad(imgaug.PercentPad(map[imgaug.Side]imgaug.FloatRange{
+				imgaug.LR: {Min: 0, Max: 0.1},
+				imgaug.TB: {Min: 0, Max: 0.3},
+			})),
 			Labels: StandardLabels,
 		},
 		{
 			Name:   "flip_lr_001",
-			Tm:     imgaug.FlipLR{},
+			Tm:     imgaug.FlipLR(),
 			Labels: StandardLabels,
 		},
 		{
 			Name:   "flip_ud_001",
-			Tm:     imgaug.FlipUD{},
+			Tm:     imgaug.FlipUD(),
 			Labels: StandardLabels,
 		},
 		{
-			Name: "resize_001",
-			Tm: imgaug.Resize{
-				Sizer: imgaug.FixedResizer{Width: 50, Height: 50},
-				Algs:  []imgaug.ResizeAlg{imgaug.NearestNeighbor},
-			},
+			Name:   "resize_001",
+			Tm:     imgaug.Resize(imgaug.FixedResize(50, 50), imgaug.NearestNeighbor),
 			Labels: imgaug.Labels{},
 		},
 		{
 			Name: "seqential_001",
 			Tm: imgaug.Sequential(
-				[]imgaug.Transformer{
-					imgaug.FlipLR{},
-					imgaug.Pad{Side: imgaug.Right, Pixels: 10},
-					imgaug.FlipUD{},
-					imgaug.Crop(image.Rect(10, 10, 140, 120)),
-				},
+				imgaug.FlipLR(),
+				imgaug.Pad(imgaug.PercentPad(map[imgaug.Side]imgaug.FloatRange{
+					imgaug.LR: {Min: 0, Max: 0.1},
+					imgaug.TB: {Min: 0, Max: 0.3},
+				})),
+				imgaug.FlipUD(),
+				imgaug.Crop(imgaug.FixedCrop(image.Rect(25, 25, 100, 100))),
 			),
 			Labels: StandardLabels,
 		},
 		{
-			Name: "seqential_sometimes_001",
-			Tm: imgaug.Sequential(
-				[]imgaug.Transformer{
-					imgaug.Sometimes{P: 0.33, Transformer: imgaug.FlipLR{}},
-					imgaug.Sometimes{P: 0.33, Transformer: imgaug.Pad{Side: imgaug.Right, Pixels: 10}},
-					imgaug.Sometimes{P: 0.33, Transformer: imgaug.FlipUD{}},
-					imgaug.Sometimes{P: 0.33, Transformer: imgaug.Crop(image.Rect(10, 10, 140, 120))},
-				},
+			Name: "some_of_001",
+			Tm: imgaug.SomeOf(imgaug.IntRange{Min: 1, Max: 2}, imgaug.FlipLR(),
+				imgaug.Pad(imgaug.PercentPad(map[imgaug.Side]imgaug.FloatRange{
+					imgaug.LR: {Min: 0, Max: 0.1},
+					imgaug.TB: {Min: 0, Max: 0.3},
+				})),
+				imgaug.FlipUD(),
+				imgaug.Crop(imgaug.FixedCrop(image.Rect(25, 25, 100, 100))),
 			),
 			Labels: StandardLabels,
 		},

@@ -8,120 +8,153 @@ import (
 	"github.com/disintegration/imaging"
 )
 
-type Crop image.Rectangle
-
-func (c Crop) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
-	img = imaging.Crop(img, image.Rectangle(c))
-	newLabels := Labels{}
-	for _, v := range labels.BBoxes {
-		r := v.Intersect(image.Rectangle(c))
-		r = image.Rectangle{
-			Min: r.Min.Sub(c.Min),
-			Max: r.Max.Sub(c.Min),
-		}
-		if cfg.keepBbox(image.Rectangle(c), r) {
-			newLabels.BBoxes = append(newLabels.BBoxes, r)
-		}
-	}
-	return img, newLabels
-}
-
-type Side int8
+type Side uint8
 
 const (
-	Left Side = iota
-	Top
-	Right
-	Bottom
+	L Side = 1 << iota
+	T
+	R
+	B
+	LR  = L | R
+	TB  = T | B
+	All = LR | TB
 )
 
-type Pad struct {
-	Side   Side
-	Pixels int
+type CropFunc func(cfg *Config, bnds image.Point) image.Rectangle
+
+func FixedCrop(r image.Rectangle) CropFunc {
+	return func(cfg *Config, bnds image.Point) image.Rectangle {
+		return r
+	}
 }
 
-func (p Pad) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
-	bnds := img.Bounds()
-	r := image.Rectangle{}
-	switch p.Side {
-	case Left:
-		offset := image.Pt(p.Pixels, 0)
-		bnds = image.Rectangle{Min: image.Pt(0, 0), Max: bnds.Max.Add(offset)}
-		r = image.Rectangle{Min: offset, Max: bnds.Max}
-	case Right:
-		offset := image.Pt(p.Pixels, 0)
-		bnds = image.Rectangle{Min: image.Pt(0, 0), Max: bnds.Max.Add(offset)}
-		r = image.Rectangle{Min: image.Pt(0, 0), Max: bnds.Max.Sub(offset)}
-	case Top:
-		offset := image.Pt(0, p.Pixels)
-		bnds = image.Rectangle{Min: image.Pt(0, 0), Max: bnds.Max.Add(offset)}
-		r = image.Rectangle{Min: offset, Max: bnds.Max}
-	case Bottom:
-		offset := image.Pt(0, p.Pixels)
-		bnds = image.Rectangle{Min: image.Pt(0, 0), Max: bnds.Max.Add(offset)}
-		r = image.Rectangle{Min: image.Pt(0, 0), Max: bnds.Max.Sub(offset)}
+func PercentCrop(sides map[Side]FloatRange) CropFunc {
+	return func(cfg *Config, bnds image.Point) image.Rectangle {
+		pxSides := percentSides(cfg, bnds, sides)
+		return image.Rect(pxSides[L], pxSides[T], bnds.X-pxSides[R], bnds.Y-pxSides[B])
 	}
-	dImg := image.NewRGBA(bnds)
-	draw.Draw(dImg, r, img, image.ZP, draw.Over)
-	newLabels := Labels{}
-	for _, v := range labels.BBoxes {
-		r := image.Rectangle{
-			Min: v.Min.Add(r.Min),
-			Max: v.Max.Add(r.Min),
+}
+
+func PixelCrop(sides map[Side]IntRange) CropFunc {
+	return func(cfg *Config, bnds image.Point) image.Rectangle {
+		pxSides := pixelSides(cfg, bnds, sides)
+		return image.Rect(pxSides[L], pxSides[T], bnds.X-pxSides[R], bnds.Y-pxSides[B])
+	}
+}
+
+func Crop(fn CropFunc) Transformer {
+	return TransformerFunc(func(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
+		c := fn(cfg, img.Bounds().Max)
+		img = imaging.Crop(img, c)
+		newLabels := Labels{}
+		for _, v := range labels.BBoxes {
+			r := v.Intersect(image.Rectangle(c))
+			r = image.Rectangle{
+				Min: r.Min.Sub(c.Min),
+				Max: r.Max.Sub(c.Min),
+			}
+			if cfg.keepBbox(image.Rectangle(c), r) {
+				newLabels.BBoxes = append(newLabels.BBoxes, r)
+			}
 		}
-		newLabels.BBoxes = append(newLabels.BBoxes, r)
+		return img, newLabels
+	})
+}
+
+type PadFunc func(cfg *Config, bnds image.Point) map[Side]int
+
+func PercentPad(sides map[Side]FloatRange) PadFunc {
+	return func(cfg *Config, bnds image.Point) map[Side]int {
+		return percentSides(cfg, bnds, sides)
 	}
-	return dImg, newLabels
 }
 
-type Sizer interface {
-	Size(cfg *Config, bnds image.Point) image.Point
-}
-
-type FixedResizer struct {
-	Width  int
-	Height int
-}
-
-func (fr FixedResizer) Size(cfg *Config, bnds image.Point) image.Point {
-	return image.Pt(fr.Width, fr.Height)
-}
-
-type MultiplyResizer struct {
-	Width  FloatRange
-	Height FloatRange
-}
-
-func (mr MultiplyResizer) Size(cfg *Config, bnds image.Point) image.Point {
-	wx := mr.Width.Float(cfg.r)
-	hx := mr.Height.Float(cfg.r)
-	return resizePoint(bnds, wx, hx)
-}
-
-type Resize struct {
-	Sizer Sizer
-	Algs  []ResizeAlg
-}
-
-func (r Resize) Transform(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
-	ogBnds := img.Bounds()
-	pt := r.Sizer.Size(cfg, img.Bounds().Max)
-	alg := NearestNeighbor
-	if len(r.Algs) > 0 {
-		alg = r.Algs[cfg.r.Intn(len(r.Algs))]
+func PixelPad(sides map[Side]IntRange) PadFunc {
+	return func(cfg *Config, bnds image.Point) map[Side]int {
+		return pixelSides(cfg, bnds, sides)
 	}
-	img = imaging.Resize(img, pt.X, pt.Y, alg.resampleFilter())
-	xRatio := float64(img.Bounds().Dx()) / float64(ogBnds.Dx())
-	yRatio := float64(img.Bounds().Dy()) / float64(ogBnds.Dy())
-	newLabels := Labels{}
-	for _, v := range labels.BBoxes {
-		r := image.Rectangle{
-			Min: resizePoint(v.Min, xRatio, yRatio),
-			Max: resizePoint(v.Max, xRatio, yRatio),
+}
+
+func Pad(fn PadFunc) Transformer {
+	return TransformerFunc(func(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
+		sides := fn(cfg, img.Bounds().Max)
+		var bOffset image.Point
+		var rOffset image.Point
+		for s, px := range sides {
+			switch s {
+			case L:
+				bOffset = bOffset.Add(image.Pt(px, 0))
+				rOffset = rOffset.Add(image.Pt(px, 0))
+			case R:
+				bOffset = bOffset.Add(image.Pt(px, 0))
+			case T:
+				bOffset = bOffset.Add(image.Pt(0, px))
+				rOffset = rOffset.Add(image.Pt(0, px))
+			case B:
+				bOffset = bOffset.Add(image.Pt(0, px))
+			}
 		}
-		newLabels.BBoxes = append(newLabels.BBoxes, r)
+		r := image.Rectangle{Min: rOffset, Max: rOffset.Add(img.Bounds().Max)}
+		max := img.Bounds().Max.Add(bOffset)
+		dImg := image.NewRGBA(image.Rect(0, 0, max.X, max.Y))
+		draw.Draw(dImg, r, img, image.ZP, draw.Over)
+		newLabels := Labels{}
+		for _, v := range labels.BBoxes {
+			r := image.Rectangle{
+				Min: v.Min.Add(r.Min),
+				Max: v.Max.Add(r.Min),
+			}
+			newLabels.BBoxes = append(newLabels.BBoxes, r)
+		}
+		return dImg, newLabels
+	})
+}
+
+type ResizeFunc func(cfg *Config, bnds image.Point) image.Point
+
+func FixedResize(w, h int) ResizeFunc {
+	return func(cfg *Config, bnds image.Point) image.Point {
+		return image.Pt(w, h)
 	}
-	return img, newLabels
+}
+
+func PercentResize(w FloatRange, h FloatRange) ResizeFunc {
+	return func(cfg *Config, bnds image.Point) image.Point {
+		wx := w.Float(cfg.r)
+		hx := h.Float(cfg.r)
+		return resizePoint(bnds, wx, hx)
+	}
+}
+
+func PixelResize(w IntRange, h IntRange) ResizeFunc {
+	return func(cfg *Config, bnds image.Point) image.Point {
+		wx := w.Int(cfg.r)
+		hx := h.Int(cfg.r)
+		return image.Pt(bnds.X+wx, bnds.Y+hx)
+	}
+}
+
+func Resize(fn ResizeFunc, algs ...ResizeAlg) Transformer {
+	return TransformerFunc(func(cfg *Config, img image.Image, labels Labels) (image.Image, Labels) {
+		ogBnds := img.Bounds()
+		pt := fn(cfg, img.Bounds().Max)
+		alg := NearestNeighbor
+		if len(algs) > 0 {
+			alg = algs[cfg.r.Intn(len(algs))]
+		}
+		img = imaging.Resize(img, pt.X, pt.Y, alg.resampleFilter())
+		xRatio := float64(img.Bounds().Dx()) / float64(ogBnds.Dx())
+		yRatio := float64(img.Bounds().Dy()) / float64(ogBnds.Dy())
+		newLabels := Labels{}
+		for _, v := range labels.BBoxes {
+			r := image.Rectangle{
+				Min: resizePoint(v.Min, xRatio, yRatio),
+				Max: resizePoint(v.Max, xRatio, yRatio),
+			}
+			newLabels.BBoxes = append(newLabels.BBoxes, r)
+		}
+		return img, newLabels
+	})
 }
 
 func resizePoint(pt image.Point, xRatio, yRatio float64) image.Point {
@@ -184,4 +217,65 @@ func (ra ResizeAlg) resampleFilter() imaging.ResampleFilter {
 		return imaging.Cosine
 	}
 	return imaging.NearestNeighbor
+}
+
+func percentSides(cfg *Config, bnds image.Point, sides map[Side]FloatRange) map[Side]int {
+	m := map[Side]int{}
+	cp := sides
+	for s, ir := range sides {
+		switch s {
+		case L, R, T, B:
+			cp[s] = ir
+		case LR:
+			cp[L] = ir
+			cp[R] = ir
+		case TB:
+			cp[T] = ir
+			cp[B] = ir
+		case All:
+			cp[L] = ir
+			cp[R] = ir
+			cp[T] = ir
+			cp[B] = ir
+		}
+	}
+	for s, fr := range cp {
+		switch s {
+		case L, R:
+			f := fr.Float(cfg.r)
+			f = math.Abs(f)
+			m[s] = resizePoint(bnds, f, f).X
+		case T, B:
+			f := fr.Float(cfg.r)
+			f = math.Abs(f)
+			m[s] = resizePoint(bnds, f, f).Y
+		}
+	}
+	return m
+}
+
+func pixelSides(cfg *Config, bnds image.Point, sides map[Side]IntRange) map[Side]int {
+	m := map[Side]int{}
+	cp := sides
+	for s, ir := range sides {
+		switch s {
+		case L, R, T, B:
+			cp[s] = ir
+		case LR:
+			cp[L] = ir
+			cp[R] = ir
+		case TB:
+			cp[T] = ir
+			cp[B] = ir
+		case All:
+			cp[L] = ir
+			cp[R] = ir
+			cp[T] = ir
+			cp[B] = ir
+		}
+	}
+	for s, ir := range cp {
+		m[s] = ir.Int(cfg.r)
+	}
+	return m
 }
